@@ -1,6 +1,7 @@
 // Full-window heart explorer built on the real BodyParts3D heart.
-// X-ray / cut / solid views, blood flow through the real vessels, callout
-// labels with leader lines, hover + click info, and a guided "follow one drop" tour.
+// Default view is a textbook-style section: the front of the heart is cut away
+// along a plane that opens all four chambers, so the chambers, valves and septum
+// are visible, with clear flow arrows and one bright drop you can follow.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -13,8 +14,23 @@ import { GROUPS, JOURNEY } from './explorer-data.js';
 import { beatShape } from './ecg.js';
 
 const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
-const RED = new THREE.Color('#ff3352'), BLUE = new THREE.Color('#4a72ff');
+const BLUE = new THREE.Color('#5f86ff'), RED = new THREE.Color('#ff4a5f');
 const BIN_URL = `${import.meta.env.BASE_URL}heart/heart.bin`;
+
+// Plane that opens all four chambers at once (found by testing which share of
+// each cavity falls on each side). Everything in front of it is cut away.
+const CUT_N = new THREE.Vector3(0.44, 0.34, 0.83).normalize();
+const CUT_D = 0.0;
+// parts left out to keep the picture simple
+const HIDDEN = new Set(['FJ3564', 'FJ3579']);
+// keep vessels short, like a textbook drawing (model space: keep n·p + c >= 0)
+const TRIM = {
+  FJ1931: [[[0, 1, 0], 0.25]],
+  FJ3441: [[[0, 1, 0], 0.72]],
+  aortaBranches: [[[0, -1, 0], 1.02]],
+  svc: [[[0, -1, 0], 1.02]],
+  pulmArteries: [[[-1, 0, 0], 0.62], [[1, 0, 0], 0.62]],
+};
 
 let binPromise = null;
 export function prefetchHeart() {
@@ -40,6 +56,11 @@ function buildDom() {
         <svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
     </header>
+    <div class="ex-key" aria-hidden="true">
+      <span><i class="co2"></i>Χωρίς οξυγόνο</span>
+      <span><i class="o2"></i>Με οξυγόνο</span>
+      <span><i class="drop"></i>Η σταγόνα</span>
+    </div>
     <aside class="ex-journey">
       <div class="ex-j-head">
         <span class="tag">Η διαδρομή του αίματος</span>
@@ -56,13 +77,14 @@ function buildDom() {
     <div class="ex-bar">
       <div class="ex-seg" role="radiogroup" aria-label="Προβολή">
         <span class="ex-seg-pill" aria-hidden="true"></span>
-        <button type="button" data-mode="xray" class="on">Ακτινογραφία</button>
-        <button type="button" data-mode="cut">Τομή</button>
-        <button type="button" data-mode="solid">Συμπαγής</button>
+        <button type="button" data-mode="cut" class="on">Τομή</button>
+        <button type="button" data-mode="xray">Διάφανη</button>
+        <button type="button" data-mode="solid">Απ' έξω</button>
       </div>
       <div class="ex-tg">
         <button type="button" data-t="flow" class="on"><i></i>Ροή</button>
-        <button type="button" data-t="labels" class="on"><i></i>Ετικέτες</button>
+        <button type="button" data-t="labels" class="on"><i></i>Ονόματα</button>
+        <button type="button" data-t="cor"><i></i>Στεφανιαίες</button>
         <button type="button" data-t="beat" class="on"><i></i>Χτύπος</button>
         <button type="button" data-t="reset" class="plain">Επαναφορά</button>
       </div>
@@ -75,19 +97,24 @@ function buildDom() {
 }
 
 // ---------------- materials ----------------
-function glassify(mat, u) {
-  // fresnel-driven alpha so walls read like x-ray glass, plus darker inner faces in the cut view
+// Fresnel alpha for the see-through view, and a flat pink "cut surface" colour
+// on the inside of the muscle where the section opens it (like a textbook drawing).
+function sectionify(mat, u) {
   mat.onBeforeCompile = (sh) => {
-    sh.uniforms.uA0 = u.a0; sh.uniforms.uA1 = u.a1; sh.uniforms.uHi = u.hi; sh.uniforms.uHiC = u.hiC;
-    sh.fragmentShader = 'uniform float uA0, uA1, uHi; uniform vec3 uHiC;\n' + sh.fragmentShader.replace(
+    Object.assign(sh.uniforms, { uA0: u.a0, uA1: u.a1, uHi: u.hi, uHiC: u.hiC, uCap: u.cap, uCapC: u.capC });
+    sh.fragmentShader = 'uniform float uA0, uA1, uHi, uCap; uniform vec3 uHiC, uCapC;\n' + sh.fragmentShader.replace(
       '#include <opaque_fragment>',
-      `float fres = pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 2.2);
+      `float fres = pow(1.0 - abs(dot(normal, normalize(vViewPosition))), 2.0);
        diffuseColor.a = mix(uA0, uA1, fres);
-       if (!gl_FrontFacing) outgoingLight *= 0.42;
-       outgoingLight += uHiC * uHi * (0.35 + 0.65 * fres);
+       if (!gl_FrontFacing) {
+         float l = 0.72 + 0.28 * abs(normal.z);
+         outgoingLight = mix(outgoingLight * 0.45, uCapC * l, uCap);
+         diffuseColor.a = mix(diffuseColor.a, 1.0, uCap);
+       }
+       outgoingLight += uHiC * uHi * (0.25 + 0.5 * fres);
        #include <opaque_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'glass';
+  mat.customProgramCacheKey = () => 'section';
   return mat;
 }
 
@@ -101,79 +128,83 @@ export function createExplorer({ onOpen, onClose } = {}) {
   const info = $('.ex-info');
 
   let renderer, scene, camera, controls, composer, bloom, ready = false, building = null, raf = 0, isOpen = false;
-  const groups = {};          // group -> { meshes:[], mat, uniforms }
+  const groups = {};          // key -> { gk, meshes, mat, u, trim, target }
   const pickables = [];
-  const clip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.6);
-  const heartRoot = new THREE.Group();
   const beatGroup = new THREE.Group();
-  const state = { mode: 'xray', flow: true, labels: true, beat: true, hover: null, selected: null, tour: false, tourT: 0, zone: null };
+  const state = { mode: 'cut', flow: true, labels: true, beat: true, cor: false, hover: null, selected: null, tour: false, tourT: 0, zone: null };
+
+  // clipping planes live in model space; world copies are refreshed every frame
+  const planes = [];
+  const mkPlane = (n, c) => { const m = new THREE.Plane(V(n).normalize(), c); const w = m.clone(); planes.push({ m, w }); return w; };
+  const cutModel = new THREE.Plane(CUT_N.clone().negate(), CUT_D);
+  const cutPlane = cutModel.clone();
+  planes.push({ m: cutModel, w: cutPlane });
+  const trimFor = {};
+  for (const [k, list] of Object.entries(TRIM)) trimFor[k] = list.map(([n, c]) => mkPlane(n, c));
+  let cutOffset = 0, cutTarget = 0;
 
   // ---------------- build scene ----------------
   async function build() {
     const buf = await prefetchHeart();
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(devicePixelRatio, innerWidth < 760 ? 1.75 : 2));
     renderer.localClippingEnabled = true;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 1.0;
     host.appendChild(renderer.domElement);
 
     scene = new THREE.Scene();
     scene.background = bgTexture();
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.5;
+    scene.environmentIntensity = 0.35;
     camera = new THREE.PerspectiveCamera(30, 1, 0.02, 60);
-    camera.position.set(0.6, 0.35, 9);
 
-    scene.add(new THREE.HemisphereLight(0xffe2e6, 0x12040a, 0.6));
-    const key = new THREE.DirectionalLight(0xfff1e8, 2.2); key.position.set(2.5, 3.5, 4); scene.add(key);
-    const rimB = new THREE.DirectionalLight(0x5a7dff, 2.4); rimB.position.set(-4, 1.5, -4); scene.add(rimB);
-    const rimR = new THREE.DirectionalLight(0xff2a4a, 1.8); rimR.position.set(4, -1.5, -3); scene.add(rimR);
-    const camLight = new THREE.PointLight(0xffd6dc, 1.2, 8); camera.add(camLight); scene.add(camera);
+    scene.add(new THREE.HemisphereLight(0xfff0f0, 0x2a0a12, 0.9));
+    const key = new THREE.DirectionalLight(0xffffff, 2.0); key.position.copy(CUT_N).multiplyScalar(5).add(new THREE.Vector3(1.5, 3, 0)); scene.add(key);
+    const fill = new THREE.DirectionalLight(0xffe6ea, 0.8); fill.position.set(-4, 0.5, 3); scene.add(fill);
+    const rim = new THREE.DirectionalLight(0x8aa2ff, 0.7); rim.position.set(-3, 2, -4); scene.add(rim);
+    scene.add(camera);
+    scene.add(beatGroup);
 
-    // the model sits at its true orientation: x = patient's left, y = up, z = front
-    heartRoot.add(beatGroup);
-    scene.add(heartRoot);
-
-    const mk = (gk, base) => {
-      const u = { a0: { value: 1 }, a1: { value: 1 }, hi: { value: 0 }, hiC: { value: new THREE.Color('#ffffff') } };
-      const mat = glassify(new THREE.MeshPhysicalMaterial({ transparent: true, side: THREE.DoubleSide, ...base }), u);
-      groups[gk] = { meshes: [], mat, u };
-      return mat;
-    };
-    const muscle = { color: '#8c1a2a', roughness: 0.42, clearcoat: 0.7, clearcoatRoughness: 0.25, sheen: 0.7, sheenColor: new THREE.Color('#ff7088'), sheenRoughness: 0.5 };
-    const art = { color: '#c3203a', roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.18, sheen: 0.5, sheenColor: new THREE.Color('#ffb0bc') };
-    const vein = { color: '#2d4fd2', roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.18, sheen: 0.5, sheenColor: new THREE.Color('#b0c4ff') };
+    const muscle = { color: '#a8323e', roughness: 0.55, clearcoat: 0.35, clearcoatRoughness: 0.4, sheen: 0.3, sheenColor: new THREE.Color('#ff9aa6'), sheenRoughness: 0.6 };
+    const art = { color: '#d5473f', roughness: 0.45, clearcoat: 0.5, clearcoatRoughness: 0.3 };
+    const vein = { color: '#3f63d6', roughness: 0.45, clearcoat: 0.5, clearcoatRoughness: 0.3 };
+    const valve = { color: '#d9c2b6', roughness: 0.7, sheen: 0.15, sheenColor: new THREE.Color('#ffffff'), emissive: '#ffffff', emissiveIntensity: 0 };
     const MATS = {
-      wallV: muscle, wallLA: { ...muscle, color: '#9a2235' }, wallRA: { ...muscle, color: '#7c1d3c' },
-      cavRA: { color: '#3157e8', emissive: '#16299a', emissiveIntensity: 0.9, roughness: 0.6 },
-      cavRV: { color: '#3157e8', emissive: '#16299a', emissiveIntensity: 0.9, roughness: 0.6 },
-      cavLA: { color: '#e3243f', emissive: '#8a0a1e', emissiveIntensity: 0.9, roughness: 0.6 },
-      cavLV: { color: '#e3243f', emissive: '#8a0a1e', emissiveIntensity: 0.9, roughness: 0.6 },
-      valveTri: { color: '#f2d5c8', roughness: 0.5, sheen: 1, sheenColor: new THREE.Color('#ffffff'), emissive: '#ffb08a', emissiveIntensity: 0 },
-      valvePul: { color: '#f2d5c8', roughness: 0.5, sheen: 1, sheenColor: new THREE.Color('#ffffff'), emissive: '#ffb08a', emissiveIntensity: 0 },
-      valveMit: { color: '#f2d5c8', roughness: 0.5, sheen: 1, sheenColor: new THREE.Color('#ffffff'), emissive: '#ffb08a', emissiveIntensity: 0 },
-      valveAor: { color: '#f2d5c8', roughness: 0.5, sheen: 1, sheenColor: new THREE.Color('#ffffff'), emissive: '#ffb08a', emissiveIntensity: 0 },
-      coronaryA: { color: '#ff6a3d', emissive: '#ff4a20', emissiveIntensity: 0.55, roughness: 0.3, clearcoat: 1 },
-      cardiacV: { color: '#4466ff', emissive: '#2238c8', emissiveIntensity: 0.45, roughness: 0.3, clearcoat: 1 },
-      aorta: art, aortaBranches: art, pulmVeins: { ...art, color: '#d42a44' },
+      wallV: muscle, wallLA: muscle, wallRA: muscle,
+      cavRA: { color: '#4a63d8', emissive: '#14205e', emissiveIntensity: 0.6, roughness: 0.75 },
+      cavRV: { color: '#4a63d8', emissive: '#14205e', emissiveIntensity: 0.6, roughness: 0.75 },
+      cavLA: { color: '#d03040', emissive: '#4a0810', emissiveIntensity: 0.6, roughness: 0.75 },
+      cavLV: { color: '#d03040', emissive: '#4a0810', emissiveIntensity: 0.6, roughness: 0.75 },
+      valveTri: valve, valvePul: valve, valveMit: valve, valveAor: valve,
+      coronaryA: { color: '#ff7a3d', emissive: '#ff4a20', emissiveIntensity: 0.25, roughness: 0.4 },
+      cardiacV: { color: '#5577ff', emissive: '#2238c8', emissiveIntensity: 0.2, roughness: 0.4 },
+      aorta: art, aortaBranches: art, pulmVeins: { ...art, color: '#c93a40' },
       pulmTrunk: vein, pulmArteries: vein, svc: vein, ivc: vein,
     };
 
     for (const [gk, parts] of Object.entries(manifest.groups)) {
-      const mat = mk(gk, MATS[gk]);
       for (const p of parts) {
+        if (HIDDEN.has(p.id)) continue;
+        const key = TRIM[p.id] ? p.id : gk;   // parts with their own trim get their own material
+        if (!groups[key]) {
+          const u = { a0: { value: 1 }, a1: { value: 1 }, hi: { value: 0 }, hiC: { value: new THREE.Color('#ffffff') }, cap: { value: 0 }, capC: { value: new THREE.Color('#eba7a2') } };
+          const mat = sectionify(new THREE.MeshPhysicalMaterial({ transparent: true, side: THREE.DoubleSide, ...MATS[gk] }), u);
+          // a chamber's surface sits exactly on the inner wall: pull it forward so it wins cleanly
+          if (gk.startsWith('cav')) { mat.polygonOffset = true; mat.polygonOffsetFactor = -2; mat.polygonOffsetUnits = -6; }
+          groups[key] = { gk, meshes: [], mat, u, trim: trimFor[key] || [], target: { a0: 1, a1: 1, cap: 0 } };
+        }
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(buf, p.positions, p.vertexCount * 3), 3));
         g.setAttribute('normal', new THREE.BufferAttribute(new Int16Array(buf, p.normals, p.vertexCount * 3), 3, true));
         g.setIndex(new THREE.BufferAttribute(new Uint16Array(buf, p.indices, p.indexCount), 1));
         g.computeBoundingSphere();
-        const m = new THREE.Mesh(g, mat);
+        const m = new THREE.Mesh(g, groups[key].mat);
         m.userData = { group: gk, id: p.id, name: p.name };
         m.renderOrder = gk.startsWith('wall') ? 5 : gk.startsWith('cav') ? 3 : 1;
         beatGroup.add(m);
-        groups[gk].meshes.push(m);
+        groups[key].meshes.push(m);
         pickables.push(m);
       }
     }
@@ -183,7 +214,7 @@ export function createExplorer({ onOpen, onClose } = {}) {
 
     composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.55, 0.5, 0.82);
+    bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.3, 0.3, 0.98);
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
 
@@ -191,7 +222,7 @@ export function createExplorer({ onOpen, onClose } = {}) {
     controls.enableDamping = true; controls.dampingFactor = 0.07;
     controls.minDistance = 1.2; controls.maxDistance = 9;
     controls.enablePan = true; controls.screenSpacePanning = true;
-    controls.target.set(0, 0.12, 0);
+    controls.target.copy(HOME.target);
     controls.addEventListener('start', () => { userMoved = true; });
 
     setupPicking();
@@ -205,119 +236,124 @@ export function createExplorer({ onOpen, onClose } = {}) {
   function bgTexture() {
     const c = document.createElement('canvas'); c.width = c.height = 1024;
     const x = c.getContext('2d');
-    x.fillStyle = '#060207'; x.fillRect(0, 0, 1024, 1024);
-    let g = x.createRadialGradient(560, 470, 0, 560, 470, 620);
-    g.addColorStop(0, 'rgba(120,14,38,0.55)'); g.addColorStop(0.45, 'rgba(60,6,22,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = '#0a0409'; x.fillRect(0, 0, 1024, 1024);
+    const g = x.createRadialGradient(580, 470, 0, 580, 470, 640);
+    g.addColorStop(0, 'rgba(90,22,40,0.55)'); g.addColorStop(0.5, 'rgba(40,8,20,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
     x.fillStyle = g; x.fillRect(0, 0, 1024, 1024);
-    g = x.createRadialGradient(140, 900, 0, 140, 900, 520);
-    g.addColorStop(0, 'rgba(50,80,220,0.22)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-    x.fillStyle = g; x.fillRect(0, 0, 1024, 1024);
-    x.fillStyle = 'rgba(255,140,160,0.05)';
+    x.fillStyle = 'rgba(255,170,190,0.04)';
     for (let i = 0; i < 1024; i += 22) for (let j = 0; j < 1024; j += 22) x.fillRect(i, j, 1.4, 1.4);
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
   }
 
-  // ---------------- blood flow ----------------
-  const flow = { paths: [], mesh: null, parts: [], drop: null, trail: null, journey: null, zones: [] };
-  const P = (id) => Object.values(manifest.groups).flat().find((p) => p.id === id);
+  // ---------------- blood flow: arrows on the real vessel centrelines ----------------
+  const flow = { segs: [], arrows: null, items: [], drop: null, trail: [], trailPts: [], journey: null, zones: [], anchors: null };
+  const allParts = Object.values(manifest.groups).flat();
+  const P = (id) => allParts.find((p) => p.id === id);
   const line = (id) => P(id).line.pts.map(V);
-  const rad = (id) => P(id).line.r;
   const gc = (gk) => { const c = new THREE.Vector3(); const ps = manifest.groups[gk]; ps.forEach((p) => c.add(V(p.center))); return c.divideScalar(ps.length); };
   const endNear = (pts, t) => (pts[0].distanceTo(t) < pts.at(-1).distanceTo(t) ? pts.slice().reverse() : pts);
   const startNear = (pts, t) => (pts[0].distanceTo(t) <= pts.at(-1).distanceTo(t) ? pts : pts.slice().reverse());
-  const W = (pts, r) => pts.map((p) => ({ p, r }));
+  const keep = (pts, f) => pts.filter(f);
 
-  function makePath(nodes, color, weight) {
+  function curveOf(pts) {
     const clean = [];
-    for (const n of nodes) if (!clean.length || clean.at(-1).p.distanceTo(n.p) > 0.03) clean.push(n);
-    const curve = new THREE.CatmullRomCurve3(clean.map((n) => n.p), false, 'centripetal');
-    const N = 420, pts = curve.getSpacedPoints(N);
-    const radii = pts.map((pt) => { let best = 1e9, r = 0.05; for (const n of clean) { const d = n.p.distanceTo(pt); if (d < best) { best = d; r = n.r; } } return r; });
-    const len = curve.getLength();
-    return { pts, radii, color, weight, len };
+    for (const p of pts) if (!clean.length || clean.at(-1).distanceTo(p) > 0.03) clean.push(p);
+    const curve = new THREE.CatmullRomCurve3(clean, false, 'centripetal');
+    return { pts: curve.getSpacedPoints(300), len: curve.getLength() };
   }
 
   function buildFlow() {
     const RA = gc('cavRA'), RV = gc('cavRV'), LA = gc('cavLA'), LV = gc('cavLV');
     const TRI = gc('valveTri'), PUL = gc('valvePul'), MIT = gc('valveMit'), AOV = gc('valveAor');
-    const RVlow = RV.clone().add(new THREE.Vector3(-0.04, -0.2, 0.0));
-    const RVout = RV.clone().lerp(PUL, 0.55).add(new THREE.Vector3(0, 0, 0.03));
-    const LVapex = LV.clone().add(new THREE.Vector3(0.14, -0.22, 0.1));
+    const RVlow = RV.clone().add(new THREE.Vector3(-0.02, -0.2, -0.04));
+    const RVout = RV.clone().lerp(PUL, 0.55);
+    const LVapex = LV.clone().add(new THREE.Vector3(0.12, -0.22, 0.06));
     const LVout = LV.clone().lerp(AOV, 0.55);
-    const SVC = endNear(line('FJ3645'), RA), IVC = endNear(line('FJ3441'), RA);
-    const RBV = endNear(line('FJ3583'), SVC[0]), LBV = endNear(line('FJ3482'), SVC[0]);
+    const SVC = keep(endNear(line('FJ3645'), RA), (p) => p.y < 1.0);
+    const IVC = keep(endNear(line('FJ3441'), RA), (p) => p.y > -0.7);
     const trunk = startNear(line('FJ2966'), PUL);
-    const LPA = startNear(line('FJ2924'), trunk.at(-1)), RPA = startNear(line('FJ3019'), trunk.at(-1));
-    const asc = startNear(line('FJ3413'), AOV), arch = startNear(line('FJ3411'), asc.at(-1)), desc = startNear(line('FJ1931'), arch.at(-1));
+    const LPA = keep(startNear(line('FJ2924'), trunk.at(-1)), (p) => Math.abs(p.x) < 0.6);
+    const RPA = keep(startNear(line('FJ3019'), trunk.at(-1)), (p) => Math.abs(p.x) < 0.6);
+    const asc = startNear(line('FJ3413'), AOV), arch = startNear(line('FJ3411'), asc.at(-1));
+    const desc = keep(startNear(line('FJ1931'), arch.at(-1)), (p) => p.y > -0.24);
+    const pv = (id) => [...endNear(line(id), LA)];
 
-    const rightHeart = [...W([RA], 0.12), ...W([TRI], 0.06), ...W([RVlow, RV, RVout], 0.1), ...W([PUL], 0.06), ...W(trunk, rad('FJ2966') * 0.7)];
-    const lpa = W(LPA, rad('FJ2924') * 0.7), rpa = W(RPA, rad('FJ3019') * 0.7);
-    const svcIn = (bv, id) => [...W(bv, rad(id) * 0.7), ...W(SVC, rad('FJ3645') * 0.7)];
-    const ivcIn = W(IVC, rad('FJ3441') * 0.7);
-    for (const [src, out, w] of [[svcIn(RBV, 'FJ3583'), lpa, 1], [svcIn(LBV, 'FJ3482'), rpa, 1], [ivcIn, lpa, 1.3], [ivcIn, rpa, 1.3]]) {
-      flow.paths.push(makePath([...src, ...rightHeart, ...out], BLUE, w));
-    }
-    const leftHeart = [...W([LA], 0.12), ...W([MIT], 0.06), ...W([LV, LVapex, LV, LVout], 0.1), ...W([AOV], 0.06), ...W(asc, rad('FJ3413') * 0.7)];
-    const archW = W(arch, rad('FJ3411') * 0.7), descW = W(desc, rad('FJ1931') * 0.7);
-    for (const id of ['FJ2925', 'FJ2933', 'FJ2944', 'FJ2950', 'FJ2955', 'FJ3020', 'FJ3040']) {
-      flow.paths.push(makePath([...W(endNear(line(id), LA), rad(id) * 0.7), ...leftHeart, ...archW, ...descW], RED, 0.9));
-    }
-    for (const id of ['FJ3417', 'FJ3483', 'FJ3479']) {
-      const br = line(id);
+    const rightCore = [RA, TRI, RVlow, RV, RVout, PUL, ...trunk];
+    const leftCore = [LA, MIT, LV, LVapex, LV, LVout, AOV, ...asc, ...arch];
+    const add = (pts, color) => flow.segs.push({ ...curveOf(pts), color });
+    add([...SVC, RA], BLUE);
+    add([...IVC, RA], BLUE);
+    add(rightCore, BLUE);
+    add([trunk.at(-1), ...LPA], BLUE);
+    add([trunk.at(-1), ...RPA], BLUE);
+    for (const id of ['FJ2925', 'FJ3020']) add([...pv(id), LA], RED);
+    add(leftCore, RED);
+    add([arch.at(-1), ...desc], RED);
+    for (const id of []) {
+      const br = keep(line(id), (p) => p.y < 1.0);
       let k = 0, best = 1e9;
       arch.forEach((a, i) => { const d = Math.min(a.distanceTo(br[0]), a.distanceTo(br.at(-1))); if (d < best) { best = d; k = i; } });
-      const brO = startNear(br, arch[k]);
-      flow.paths.push(makePath([...W(endNear(line('FJ3020'), LA), 0.03), ...leftHeart, ...archW.slice(0, k + 1), ...W(brO, rad(id) * 0.7)], RED, 0.7));
+      add([arch[k], ...startNear(br, arch[k])], RED);
     }
 
-    // instanced glowing cells
-    const total = 2600;
-    const geo = new THREE.IcosahedronGeometry(1, 1);
-    const mat = new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true, opacity: 0.95, depthWrite: false });
-    flow.mesh = new THREE.InstancedMesh(geo, mat, total);
-    flow.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    flow.mesh.frustumCulled = false;
-    flow.mesh.renderOrder = 4;
-    const wsum = flow.paths.reduce((s, p) => s + p.weight, 0);
-    for (let i = 0; i < total; i++) {
-      let r = Math.random() * wsum, pi = 0;
-      while (r > flow.paths[pi].weight) { r -= flow.paths[pi].weight; pi++; }
-      const path = flow.paths[pi];
-      flow.parts.push({ pi, t: Math.random(), sp: (0.8 + Math.random() * 0.4) / path.len, off: new THREE.Vector3().randomDirection().multiplyScalar(Math.sqrt(Math.random())), s: 0.0065 + Math.random() * 0.0065 });
-      flow.mesh.setColorAt(i, path.color.clone().multiplyScalar(1.6 + Math.random() * 0.8));
+    // arrows: cones pointing along the flow, evenly spaced, moving like a conveyor
+    const cone = new THREE.ConeGeometry(0.024, 0.068, 12, 1);
+    cone.translate(0, 0.034, 0);
+    const mat = new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true, depthTest: false, depthWrite: false });
+    const SP = 0.2;
+    for (let si = 0; si < flow.segs.length; si++) {
+      const n = Math.max(2, Math.round(flow.segs[si].len / SP));
+      for (let i = 0; i < n; i++) flow.items.push({ si, o: i / n });
     }
-    beatGroup.add(flow.mesh);
+    flow.arrows = new THREE.InstancedMesh(cone, mat, flow.items.length);
+    flow.arrows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    flow.arrows.frustumCulled = false;
+    flow.arrows.renderOrder = 20;
+    flow.items.forEach((it, i) => flow.arrows.setColorAt(i, flow.segs[it.si].color.clone().multiplyScalar(1.15)));
+    beatGroup.add(flow.arrows);
 
-    // the guided drop + its trail
-    const blue = makePath([...ivcIn, ...rightHeart, ...lpa], BLUE, 1);
-    const red = makePath([...W(endNear(line('FJ2925'), LA), rad('FJ2925') * 0.7), ...leftHeart, ...archW, ...descW], RED, 1);
+    // the guided drop: white core, coloured glow and a pulsing ring, drawn on top so it is never hidden
+    const blue = curveOf([...IVC, ...rightCore, ...LPA]);
+    const red = curveOf([...pv('FJ2925'), ...leftCore, ...desc]);
     flow.journey = { blue, red };
-    flow.drop = new THREE.Mesh(new THREE.SphereGeometry(0.035, 24, 16), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }));
+    const tex = dotTex();
+    flow.drop = new THREE.Group();
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.05, 24, 16), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false, depthTest: false, depthWrite: false, transparent: true }));
+    core.renderOrder = 31;
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: '#ffffff', depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    halo.scale.setScalar(0.42); halo.renderOrder = 30;
+    // a soft dark disc behind it so the drop stands out on light tissue too
+    const shade = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: '#000000', depthTest: false, depthWrite: false, transparent: true, opacity: 0.7 }));
+    shade.scale.setScalar(0.34); shade.renderOrder = 29;
+    const ring = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex(), color: '#ffffff', depthTest: false, depthWrite: false, transparent: true, toneMapped: false }));
+    ring.scale.setScalar(0.16); ring.renderOrder = 32;
+    flow.drop.add(shade, halo, core, ring);
+    flow.drop.userData = { halo, ring, core };
     flow.drop.visible = false;
-    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: dotTex(), color: '#ffffff', depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
-    halo.scale.setScalar(0.4); flow.drop.add(halo);
     beatGroup.add(flow.drop);
-    const TR = 60;
-    const tg = new THREE.BufferGeometry();
-    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TR * 3), 3));
-    flow.trail = new THREE.Line(tg, new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.7, toneMapped: false }));
-    flow.trail.frustumCulled = false; flow.trail.visible = false; flow.trailPts = [];
-    beatGroup.add(flow.trail);
+    for (let i = 0; i < 26; i++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: '#ffffff', depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, transparent: true, toneMapped: false }));
+      s.renderOrder = 28; s.visible = false; flow.trail.push(s); beatGroup.add(s);
+    }
 
-    // zones for "where is the drop now"
     const zonePts = {
       ivc: [...IVC, ...SVC], cavRA: [RA], valveTri: [TRI], cavRV: [RVlow, RV, RVout], valvePul: [PUL],
       pulmArteries: [...trunk, ...LPA, ...RPA], pulmVeins: line('FJ2925'), cavLA: [LA], valveMit: [MIT], cavLV: [LV, LVapex, LVout], valveAor: [AOV], aorta: [...asc, ...arch, ...desc],
     };
     flow.zones = Object.entries(zonePts).map(([zone, pts]) => ({ zone, pts }));
-    flow.anchors = { RA, RV, LA, LV, TRI, PUL, MIT, AOV, SVC, IVC, trunk, LPA, RPA, asc, arch, desc };
+    flow.anchors = { RA, RV, LA, LV, TRI, PUL, MIT, AOV, SVC, IVC, trunk, LPA, RPA, asc, arch, desc, LVapex };
   }
 
   function dotTex() {
     const c = document.createElement('canvas'); c.width = c.height = 128;
     const x = c.getContext('2d'); const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
-    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.25, 'rgba(255,255,255,0.5)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.3, 'rgba(255,255,255,0.45)'); g.addColorStop(1, 'rgba(255,255,255,0)');
     x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c);
+  }
+  function ringTex() {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const x = c.getContext('2d'); x.strokeStyle = '#fff'; x.lineWidth = 10;
+    x.beginPath(); x.arc(64, 64, 54, 0, Math.PI * 2); x.stroke(); return new THREE.CanvasTexture(c);
   }
 
   // ---------------- labels with leader lines ----------------
@@ -326,10 +362,10 @@ export function createExplorer({ onOpen, onClose } = {}) {
     const A = flow.anchors;
     const mid = (pts, f = 0.5) => pts[Math.min(pts.length - 1, Math.round((pts.length - 1) * f))];
     const defs = [
-      ['svc', mid(A.SVC, 0.35)], ['ivc', mid(A.IVC, 0.8)], ['cavRA', A.RA], ['cavRV', A.RV], ['cavLA', A.LA], ['cavLV', A.LV],
+      ['svc', mid(A.SVC, 0.4)], ['ivc', mid(A.IVC, 0.5)], ['aorta', mid(A.arch, 0.25)], ['pulmTrunk', mid(A.trunk, 0.6)], ['pulmVeins', V(P('FJ3020').center)],
+      ['cavRA', A.RA], ['cavRV', A.RV.clone().add(new THREE.Vector3(-0.04, -0.12, -0.08))], ['cavLA', A.LA], ['cavLV', A.LV.clone().lerp(A.LVapex, 0.5)],
       ['valveTri', A.TRI], ['valvePul', A.PUL], ['valveMit', A.MIT], ['valveAor', A.AOV],
-      ['pulmTrunk', mid(A.trunk, 0.5)], ['pulmArteries', mid(A.LPA, 0.55)], ['pulmVeins', V(P('FJ3020').center)],
-      ['aorta', mid(A.arch, 0.35)], ['coronaryA', V(P('FJ2631').center)], ['wallV', new THREE.Vector3(0.42, -0.28, 0.28)],
+      ['septum', new THREE.Vector3(0.06, -0.2, 0.02)], ['coronaryA', V(P('FJ2631').center)],
     ];
     for (const [gk, anchor] of defs) {
       const g = GROUPS[gk];
@@ -337,13 +373,13 @@ export function createExplorer({ onOpen, onClose } = {}) {
       el.type = 'button';
       el.className = `ex-lbl ${g.blood || 'muscle'}`;
       el.innerHTML = `<b>${g.el}</b><small>${g.blood === 'o2' ? 'με οξυγόνο' : g.blood === 'co2' ? 'χωρίς οξυγόνο' : 'μυς'}</small>`;
-      el.addEventListener('click', () => select(gk, true));
+      el.addEventListener('click', () => select(gk));
       el.addEventListener('mouseenter', () => setHover(gk));
       el.addEventListener('mouseleave', () => setHover(null));
       labelHost.appendChild(el);
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      dot.setAttribute('r', '3.2');
+      dot.setAttribute('r', '3.5');
       path.setAttribute('class', `lead ${g.blood || 'muscle'}`); dot.setAttribute('class', `ldot ${g.blood || 'muscle'}`);
       svg.append(path, dot);
       labels.push({ gk, anchor, el, path, dot, w: 0, h: 0, sx: 0, sy: 0, y: 0, side: 1 });
@@ -351,32 +387,32 @@ export function createExplorer({ onOpen, onClose } = {}) {
   }
 
   const PANEL = 322; // left journey panel width + gutter
-  const tmpV = new THREE.Vector3(), centerV = new THREE.Vector3();
+  const tmpV = new THREE.Vector3(), centerV = new THREE.Vector3(), sideV = new THREE.Vector3();
+  const MOBILE_SET = ['cavRA', 'cavRV', 'cavLA', 'cavLV', 'aorta', 'pulmTrunk', 'svc'];
   function layoutLabels() {
     const w = root.clientWidth, h = root.clientHeight, mobile = w < 760;
-    const show = state.labels;
-    beatGroup.updateMatrixWorld();
     centerV.set(0, 0.05, 0).applyMatrix4(beatGroup.matrixWorld).project(camera);
     const cx = (centerV.x * 0.5 + 0.5) * w;
-    // heart radius on screen
-    tmpV.set(0.62, 0.05, 0).applyMatrix4(beatGroup.matrixWorld).project(camera);
-    const rr = Math.max(80, Math.abs((tmpV.x * 0.5 + 0.5) * w - cx) * 1.25);
+    sideV.copy(camera.position).sub(controls.target).cross(camera.up).normalize().multiplyScalar(0.62).add(new THREE.Vector3(0, 0.05, 0)).project(camera);
+    const rr = Math.max(90, Math.abs((sideV.x * 0.5 + 0.5) * w - cx) * 1.15);
     const focus = state.selected || state.hover || (state.tour ? state.zone : null);
     const sides = { [-1]: [], [1]: [] };
     for (const L of labels) {
       tmpV.copy(L.anchor).applyMatrix4(beatGroup.matrixWorld).project(camera);
       L.sx = (tmpV.x * 0.5 + 0.5) * w; L.sy = (-tmpV.y * 0.5 + 0.5) * h;
       L.side = L.sx < cx ? -1 : 1;
-      const zoneMatch = focus && (L.gk === focus || (focus === 'pulmArteries' && L.gk === 'pulmTrunk') || (focus === 'ivc' && L.gk === 'svc'));
+      const zoneMatch = !!focus && (L.gk === focus || (focus === 'pulmArteries' && L.gk === 'pulmTrunk'));
       const crowd = state.selected && !mobile && L.side > 0 && !zoneMatch;
-      const inView = !crowd && L.sx > 40 && L.sx < w - 40 && L.sy > 60 && L.sy < h - 60;
-      L.vis = show && tmpV.z < 1 && inView && (!state.tour || zoneMatch || labels.indexOf(L) % 2 === 0) && (!mobile || zoneMatch || ['cavRA', 'cavRV', 'cavLA', 'cavLV', 'aorta', 'pulmTrunk'].includes(L.gk));
-      L.active = !!zoneMatch;
+      const inView = !crowd && L.sx > 30 && L.sx < w - 30 && L.sy > 50 && L.sy < h - 50;
+      const allowed = L.gk === 'coronaryA' ? state.cor : true;
+      L.vis = state.labels && allowed && tmpV.z < 1 && inView && (!mobile || zoneMatch || MOBILE_SET.includes(L.gk));
+      if (state.tour && !zoneMatch && L.vis) L.vis = !mobile && MOBILE_SET.includes(L.gk);
+      L.active = zoneMatch;
       if (!L.w) { L.w = L.el.offsetWidth; L.h = L.el.offsetHeight; }
       if (L.vis) sides[L.side].push(L);
     }
-    const gap = mobile ? 30 : 40;
-    const top = mobile ? 90 : 150, bottom = h - (mobile ? 250 : 120);
+    const gap = mobile ? 30 : 42;
+    const top = mobile ? 92 : 150, bottom = h - (mobile ? 250 : 120);
     for (const s of [-1, 1]) {
       const arr = sides[s].sort((a, b) => a.sy - b.sy);
       arr.forEach((L) => { L.y = Math.min(bottom, Math.max(top, L.sy)); });
@@ -391,10 +427,10 @@ export function createExplorer({ onOpen, onClose } = {}) {
       L.path.classList.toggle('vis', L.vis); L.dot.classList.toggle('vis', L.vis);
       L.path.classList.toggle('active', L.active); L.dot.classList.toggle('active', L.active);
       if (!L.vis) continue;
-      const colX = cx + L.side * (rr + (mobile ? 6 : 40));
+      const colX = cx + L.side * (rr + (mobile ? 4 : 36));
       const lx = L.side < 0 ? Math.max(mobile ? 8 : PANEL + 16, colX - L.w) : Math.min(w - (mobile ? 8 : 16) - L.w - (state.selected && !mobile ? 350 : 0), colX);
       const ex = L.side < 0 ? lx + L.w + 6 : lx - 6;
-      const elbowX = cx + L.side * rr * 0.92;
+      const elbowX = L.side < 0 ? Math.min(ex + 30, L.sx) : Math.max(ex - 30, L.sx);
       L.el.style.transform = `translate(${lx.toFixed(1)}px, ${(L.y - L.h / 2).toFixed(1)}px)`;
       L.path.setAttribute('d', `M${L.sx.toFixed(1)} ${L.sy.toFixed(1)} L${elbowX.toFixed(1)} ${L.y.toFixed(1)} L${ex.toFixed(1)} ${L.y.toFixed(1)}`);
       L.dot.setAttribute('cx', L.sx.toFixed(1)); L.dot.setAttribute('cy', L.sy.toFixed(1));
@@ -402,33 +438,39 @@ export function createExplorer({ onOpen, onClose } = {}) {
   }
 
   // ---------------- modes ----------------
+  const VESSELS = ['aorta', 'aortaBranches', 'pulmTrunk', 'pulmArteries', 'pulmVeins', 'svc', 'ivc'];
   function applyMode(instant) {
     const m = state.mode;
-    for (const [gk, g] of Object.entries(groups)) {
-      const wall = gk.startsWith('wall'), cav = gk.startsWith('cav');
-      const vessel = ['aorta', 'aortaBranches', 'pulmTrunk', 'pulmArteries', 'pulmVeins', 'svc', 'ivc'].includes(gk);
-      let a0 = 1, a1 = 1, depthWrite = true, clipOn = false, visible = true;
-      if (m === 'xray') {
-        if (wall) { a0 = 0.07; a1 = 0.6; depthWrite = false; }
-        else if (cav) { a0 = 0.1; a1 = 0.38; depthWrite = false; }
-        else if (vessel) { a0 = 0.16; a1 = 0.85; depthWrite = false; }
-      } else if (m === 'cut') {
-        if (wall || vessel) { clipOn = true; }
-        if (cav) { a0 = 0.32; a1 = 0.55; depthWrite = false; clipOn = true; }
-      } else {
-        if (cav) visible = false;
-      }
-      g.target = { a0, a1 };
-      if (instant) { g.u.a0.value = a0; g.u.a1.value = a1; }
+    for (const g of Object.values(groups)) {
+      const gk = g.gk;
+      const wall = gk.startsWith('wall'), cav = gk.startsWith('cav'), cor = gk === 'coronaryA' || gk === 'cardiacV';
+      const vessel = VESSELS.includes(gk);
+      let a0 = 1, a1 = 1, cap = 0, depthWrite = true, cut = false, visible = true;
+      if (m === 'cut') {
+        if (wall) { cut = true; cap = 1; }
+        else if (cav) { cut = true; }   // opaque: its far side becomes the chamber's inner wall
+        else if (cor || gk.startsWith('valve')) { cut = true; }
+        else if (gk === 'pulmTrunk') { a0 = 0.32; a1 = 0.85; depthWrite = false; }   // it crosses in front: see through it
+      } else if (m === 'xray') {
+        if (wall) { a0 = 0.06; a1 = 0.5; depthWrite = false; }
+        else if (cav) { a0 = 0.14; a1 = 0.32; depthWrite = false; }
+        else if (vessel) { a0 = 0.3; a1 = 0.85; depthWrite = false; }
+      } else if (cav) visible = false;
+      if (cor && !state.cor) visible = false;
+      g.target = { a0, a1, cap };
+      if (instant) { g.u.a0.value = a0; g.u.a1.value = a1; g.u.cap.value = cap; }
       g.mat.depthWrite = depthWrite;
-      g.mat.clippingPlanes = clipOn ? [clip] : null;
+      const cp = [...(cut ? [cutPlane] : []), ...g.trim];
+      g.mat.clippingPlanes = cp.length ? cp : null;
       g.mat.needsUpdate = true;
       g.meshes.forEach((mesh) => { mesh.visible = visible; });
     }
-    clipTarget = m === 'cut' ? 0.08 : 0.9;
-    if (instant) clip.constant = clipTarget;
+    // the section slides in from in front of the heart
+    cutTarget = 0;
+    if (m === 'cut' && !instant) cutOffset = 0.9;
+    if (flow.arrows) { flow.arrows.material.depthTest = m === 'solid'; flow.arrows.material.needsUpdate = true; }
+    root.dataset.mode = m;
   }
-  let clipTarget = 0.9;
 
   // ---------------- picking, hover, select ----------------
   const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
@@ -437,8 +479,8 @@ export function createExplorer({ onOpen, onClose } = {}) {
     const r = renderer.domElement.getBoundingClientRect();
     ptr.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ptr, camera);
-    const list = pickables.filter((m) => m.visible && !(state.mode === 'xray' && m.userData.group.startsWith('wall')) && !(state.mode !== 'solid' && m.userData.group.startsWith('cav') && false));
-    const hits = ray.intersectObjects(list, false).filter((h) => !h.object.material.clippingPlanes || clip.distanceToPoint(h.point) >= 0);
+    const list = pickables.filter((m) => m.visible && !(state.mode === 'xray' && m.userData.group.startsWith('wall')));
+    const hits = ray.intersectObjects(list, false).filter((h) => !h.object.material.clippingPlanes || h.object.material.clippingPlanes.every((pl) => pl.distanceToPoint(h.point) >= 0));
     return hits[0]?.object.userData || null;
   }
   function setupPicking() {
@@ -463,33 +505,29 @@ export function createExplorer({ onOpen, onClose } = {}) {
       const moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
       if (moved < (e.pointerType === 'touch' ? 10 : 5) && performance.now() - downAt[2] < 500) {
         const hit = pick(e);
-        if (hit) select(hit.group, false, hit.name); else select(null);
+        if (hit) select(hit.group, hit.name); else select(null);
       }
       downAt = null;
     });
   }
   function setHover(gk) { state.hover = gk; }
   let focusTarget = null;
-  function select(gk, focus, enName) {
+  function select(gk, enName) {
     state.selected = gk;
-    if (!gk) { info.hidden = true; root.classList.remove('has-info'); return; }
+    if (!gk) { info.hidden = true; root.classList.remove('has-info'); focusTarget = null; return; }
     const g = GROUPS[gk];
     const chip = info.querySelector('.ex-info-chip');
     chip.className = `ex-info-chip ${g.blood || 'muscle'}`;
     chip.textContent = g.blood === 'o2' ? 'Αίμα με οξυγόνο' : g.blood === 'co2' ? 'Αίμα χωρίς οξυγόνο' : 'Καρδιακός μυς';
     info.querySelector('h3').textContent = g.el;
-    info.querySelector('.ex-info-en').textContent = enName || manifest.groups[gk][0].name;
+    info.querySelector('.ex-info-en').textContent = enName || g.en || manifest.groups[gk]?.[0]?.name || '';
     info.querySelector('.ex-info-text').textContent = g.text;
     info.hidden = false;
     info.classList.remove('pop'); void info.offsetWidth; info.classList.add('pop');
     root.classList.add('has-info');
-    if (focus || true) {
-      const c = new THREE.Vector3();
-      const L = labels.find((l) => l.gk === gk);
-      if (L) c.copy(L.anchor); else c.copy(V(manifest.groups[gk][0].center));
-      focusTarget = c;
-      userMoved = false;
-    }
+    const L = labels.find((l) => l.gk === gk);
+    focusTarget = L ? L.anchor.clone() : manifest.groups[gk] ? V(manifest.groups[gk][0].center) : null;
+    userMoved = false;
   }
 
   // ---------------- UI wiring ----------------
@@ -503,17 +541,23 @@ export function createExplorer({ onOpen, onClose } = {}) {
   const stepEls = [...stepsEl.children];
   const playBtn = $('.ex-play');
   playBtn.addEventListener('click', () => setTour(!state.tour));
+  function showDrop(on) {
+    if (!flow.drop) return;
+    flow.drop.visible = on;
+    if (!on) flow.trail.forEach((s) => { s.visible = false; });
+  }
   function setTour(on) {
     state.tour = on;
     playBtn.classList.toggle('on', on);
     playBtn.querySelector('.ic').textContent = on ? '❚❚' : '▶';
     playBtn.querySelector('.lb').textContent = on ? 'Παύση' : (state.tourT > 0.001 ? 'Συνέχεια' : 'Ακολούθησε μια σταγόνα');
-    if (flow.drop) { flow.drop.visible = on || state.tourT > 0; flow.trail.visible = flow.drop.visible; }
+    showDrop(on || state.tourT > 0);
     root.classList.toggle('touring', on);
     if (on) { select(null); userMoved = false; }
   }
   let zoneT = null;
   function jumpTo(zone) {
+    if (!ready) return;
     if (!zoneT) {
       zoneT = {};
       for (let i = 0; i <= 600; i++) { const T = i / 600; const z = zoneAt(dropAt(T)); if (z && !(z in zoneT)) zoneT[z] = T; }
@@ -528,28 +572,30 @@ export function createExplorer({ onOpen, onClose } = {}) {
   const moveSeg = () => { const b = segBtns.find((x) => x.classList.contains('on')); segPill.style.width = b.offsetWidth + 'px'; segPill.style.transform = `translateX(${b.offsetLeft}px)`; };
   segBtns.forEach((b) => b.addEventListener('click', () => {
     segBtns.forEach((x) => x.classList.toggle('on', x === b)); moveSeg();
-    state.mode = b.dataset.mode; applyMode(false);
+    state.mode = b.dataset.mode; if (ready) applyMode(false);
   }));
   root.querySelectorAll('.ex-tg button').forEach((b) => b.addEventListener('click', () => {
     const t = b.dataset.t;
     if (t === 'reset') { resetView(); return; }
     state[t] = !state[t]; b.classList.toggle('on', state[t]);
-    if (t === 'flow' && flow.mesh) flow.mesh.visible = state.flow;
+    if (t === 'flow' && flow.arrows) flow.arrows.visible = state.flow;
+    if (t === 'cor' && ready) { applyMode(false); if (state.cor) select('coronaryA'); else if (state.selected === 'coronaryA') select(null); }
   }));
   $('.ex-close').addEventListener('click', () => close());
   window.addEventListener('keydown', (e) => {
     if (!isOpen) return;
     if (e.key === 'Escape') { e.preventDefault(); close(); }
-    else if (e.key === ' ') { e.preventDefault(); e.stopPropagation(); setTour(!state.tour); }
-    e.stopPropagation();
+    else if (e.key === ' ') { e.preventDefault(); setTour(!state.tour); }
   }, true);
 
   let userMoved = false;
-  const HOME = { pos: new THREE.Vector3(0.75, 0.38, 3.9), target: new THREE.Vector3(0.02, 0.1, 0) };
-  function resetView() { setTour(false); state.tourT = 0; flow.trailPts.length = 0; if (flow.drop) { flow.drop.visible = false; flow.trail.visible = false; } select(null); focusTarget = null; flyTo(HOME.pos, HOME.target); }
+  const HOME = { pos: new THREE.Vector3(), target: new THREE.Vector3(0.02, 0.1, 0), dist: 4 };
+  const homePos = (out = HOME.pos) => out.copy(CUT_N).multiplyScalar(HOME.dist).add(HOME.target);
+  function resetView() { setTour(false); state.tourT = 0; flow.trailPts.length = 0; showDrop(false); select(null); flyTo(homePos(), HOME.target); }
   let fly = null;
   function flyTo(pos, target, dur = 1.4) {
     fly = { p0: camera.position.clone(), t0: controls.target.clone(), p1: pos.clone(), t1: target.clone(), s: performance.now(), d: dur * 1000 };
+    userMoved = false;
   }
 
   function resize() {
@@ -557,22 +603,24 @@ export function createExplorer({ onOpen, onClose } = {}) {
     const w = root.clientWidth, h = root.clientHeight;
     renderer.setSize(w, h); composer.setSize(w, h); bloom.setSize(w, h);
     camera.aspect = w / h;
-    // phones: heart sits above the bottom sheet
     camera.setViewOffset(w, h, w < 760 ? 0 : -PANEL / 2, w < 760 ? h * 0.1 : 0, w, h);
     camera.updateProjectionMatrix();
-    HOME.pos.set(0.75, 0.38, w / h < 0.8 ? 6.4 : 3.9);
+    HOME.dist = w / h < 0.8 ? 6.6 : 4.1;
     svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
     labels.forEach((L) => { L.w = 0; });
     moveSeg();
   }
 
   // ---------------- per-frame ----------------
+  function along(c, k, out) {
+    const f = Math.min(0.99999, Math.max(0, k)) * (c.pts.length - 1), i = Math.floor(f);
+    return out.copy(c.pts[i]).lerp(c.pts[i + 1], f - i);
+  }
   function dropAt(T, out = new THREE.Vector3()) {
     const { blue, red } = flow.journey;
-    if (T < 0.47) { const k = (T / 0.47) * (blue.pts.length - 1); return out.copy(blue.pts[Math.floor(k)]).lerp(blue.pts[Math.min(blue.pts.length - 1, Math.floor(k) + 1)], k % 1); }
-    if (T < 0.53) { return out.copy(blue.pts.at(-1)).lerp(red.pts[0], (T - 0.47) / 0.06); }
-    const k = ((T - 0.53) / 0.47) * (red.pts.length - 1);
-    return out.copy(red.pts[Math.floor(k)]).lerp(red.pts[Math.min(red.pts.length - 1, Math.floor(k) + 1)], k % 1);
+    if (T < 0.46) return along(blue, T / 0.46, out);
+    if (T < 0.54) return out.copy(blue.pts.at(-1)).lerp(red.pts[0], (T - 0.46) / 0.08);
+    return along(red, (T - 0.54) / 0.46, out);
   }
   function zoneAt(p) {
     let best = 1e9, zone = null;
@@ -580,8 +628,9 @@ export function createExplorer({ onOpen, onClose } = {}) {
     return zone;
   }
 
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3(), dropPos = new THREE.Vector3();
-  let phase = 0, last = performance.now(), openT = 0, lastZone = null;
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3(), pv2 = new THREE.Vector3(), dir = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0), dropPos = new THREE.Vector3(), swayV = new THREE.Vector3();
+  const tmpCol = new THREE.Color();
+  let phase = 0, last = performance.now(), flowT = 0, lastZone = null;
   function frame(now) {
     raf = requestAnimationFrame(frame);
     const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now;
@@ -590,64 +639,76 @@ export function createExplorer({ onOpen, onClose } = {}) {
     phase = (phase + dt * (state.beat ? 70 / 60 : 0)) % 1;
     const { atria, vent } = beatShape(phase);
     const b = state.beat ? vent : 0;
-    beatGroup.scale.set(1 - 0.018 * b, 1 - 0.012 * b, 1 - 0.018 * b);
+    beatGroup.scale.set(1 - 0.016 * b, 1 - 0.01 * b, 1 - 0.016 * b);
+    beatGroup.updateMatrixWorld();
 
-    // intro dolly
-    openT = Math.min(1, openT + dt / 1.6);
+    // clipping planes follow the beating model
+    cutOffset += (cutTarget - cutOffset) * Math.min(1, dt * 2.5);
+    cutModel.constant = CUT_D + cutOffset;
+    for (const pl of planes) pl.w.copy(pl.m).applyMatrix4(beatGroup.matrixWorld);
 
-    // material easing + highlight
     const hiGroup = state.hover || state.selected || (state.tour ? state.zone : null);
-    for (const [gk, g] of Object.entries(groups)) {
-      g.u.a0.value += (g.target.a0 - g.u.a0.value) * Math.min(1, dt * 6);
-      g.u.a1.value += (g.target.a1 - g.u.a1.value) * Math.min(1, dt * 6);
-      const zoneLink = hiGroup === gk || (hiGroup === 'pulmArteries' && gk === 'pulmTrunk') || (hiGroup === 'ivc' && gk === 'svc') || (hiGroup === 'aorta' && gk === 'aortaBranches');
-      const hi = zoneLink ? 0.55 + 0.25 * Math.sin(t * 4) : 0;
+    for (const g of Object.values(groups)) {
+      const k = Math.min(1, dt * 6);
+      g.u.a0.value += (g.target.a0 - g.u.a0.value) * k;
+      g.u.a1.value += (g.target.a1 - g.u.a1.value) * k;
+      g.u.cap.value += (g.target.cap - g.u.cap.value) * k;
+      const gk = g.gk;
+      const link = hiGroup === gk || (hiGroup === 'pulmArteries' && gk === 'pulmTrunk') || (hiGroup === 'aorta' && gk === 'aortaBranches') || (hiGroup === 'ivc' && gk === 'svc');
+      const hi = link ? 0.4 + 0.15 * Math.sin(t * 4) : 0;
       g.u.hi.value += (hi - g.u.hi.value) * Math.min(1, dt * 8);
       const blood = GROUPS[gk].blood;
-      g.u.hiC.value.set(blood === 'o2' ? '#ff6a80' : blood === 'co2' ? '#7a96ff' : '#ffb0a0');
+      g.u.hiC.value.set(blood === 'o2' ? '#ff6a7a' : blood === 'co2' ? '#7c98ff' : '#ffd0c4');
     }
-    // valves glow when they open: AV valves in diastole, semilunar in systole
-    const sys = vent, dia = Math.max(0, 1 - vent * 1.6) * (0.4 + 0.6 * atria);
-    for (const [gk, v] of [['valveTri', dia], ['valveMit', dia], ['valvePul', sys], ['valveAor', sys]]) groups[gk].mat.emissiveIntensity = state.beat ? 0.15 + 0.9 * v : 0.1;
-    groups.coronaryA.mat.emissiveIntensity = 0.45 + 0.5 * b;
+    // valves brighten a little as they open: AV valves in diastole, semilunar in systole
+    const dia = Math.max(0, 1 - vent * 1.6) * (0.4 + 0.6 * atria);
+    for (const [gk, v] of [['valveTri', dia], ['valveMit', dia], ['valvePul', vent], ['valveAor', vent]]) groups[gk].mat.emissiveIntensity = state.beat ? 0.02 + 0.1 * v : 0.02;
 
-    clip.constant += (clipTarget - clip.constant) * Math.min(1, dt * 3);
-
-    // blood cells
-    if (flow.mesh.visible) {
-      const pump = 0.35 + 1.5 * vent + 0.4 * atria;
-      for (let i = 0; i < flow.parts.length; i++) {
-        const c = flow.parts[i], path = flow.paths[c.pi];
-        c.t += c.sp * dt * pump * 0.55;
-        c.t = ((c.t % 1) + 1) % 1;
-        const k = c.t * (path.pts.length - 1), i0 = Math.floor(k);
-        pv.copy(path.pts[i0]).lerp(path.pts[Math.min(path.pts.length - 1, i0 + 1)], k - i0);
-        const r = path.radii[i0];
-        pv.addScaledVector(c.off, r);
-        const fade = Math.min(1, c.t * 25, (1 - c.t) * 25);
-        sv.setScalar(c.s * fade);
+    // flow arrows
+    if (flow.arrows.visible) {
+      flowT += dt * (0.25 + 1.3 * vent + 0.3 * atria) * 0.13;
+      for (let i = 0; i < flow.items.length; i++) {
+        const it = flow.items[i], s = flow.segs[it.si];
+        const u = (it.o + flowT / s.len) % 1;
+        along(s, u, pv);
+        along(s, Math.min(1, u + 0.01), pv2);
+        dir.subVectors(pv2, pv);
+        if (dir.lengthSq() < 1e-10) dir.set(0, 1, 0);
+        q.setFromUnitVectors(UP, dir.normalize());
+        sv.setScalar(Math.min(1, u * 8, (1 - u) * 8));
         m4.compose(pv, q, sv);
-        flow.mesh.setMatrixAt(i, m4);
+        flow.arrows.setMatrixAt(i, m4);
       }
-      flow.mesh.instanceMatrix.needsUpdate = true;
-      if (flow.mesh.instanceColor && !flow.colorsSet) { flow.mesh.instanceColor.needsUpdate = true; flow.colorsSet = true; }
+      flow.arrows.instanceMatrix.needsUpdate = true;
+      flow.arrows.material.opacity = state.tour ? 0.35 : 0.92;
     }
 
     // guided drop
     if (state.tour) {
-      state.tourT += dt * (0.016 + 0.034 * vent);
+      state.tourT += dt * (0.014 + 0.03 * vent);
       if (state.tourT >= 1) { state.tourT = 0; flow.trailPts.length = 0; }
     }
     if (flow.drop.visible) {
       dropAt(state.tourT, dropPos);
       flow.drop.position.copy(dropPos);
-      const col = state.tourT < 0.47 ? BLUE : state.tourT < 0.53 ? BLUE.clone().lerp(RED, (state.tourT - 0.47) / 0.06) : RED;
-      flow.drop.children[0].material.color.copy(col);
-      flow.trail.material.color.copy(col);
-      flow.trailPts.push(dropPos.clone()); if (flow.trailPts.length > 60) flow.trailPts.shift();
-      const arr = flow.trail.geometry.attributes.position.array;
-      for (let i = 0; i < 60; i++) { const p = flow.trailPts[Math.max(0, flow.trailPts.length - 60 + i)] || dropPos; arr[i * 3] = p.x; arr[i * 3 + 1] = p.y; arr[i * 3 + 2] = p.z; }
-      flow.trail.geometry.attributes.position.needsUpdate = true;
+      const T = state.tourT;
+      tmpCol.copy(T < 0.46 ? BLUE : T < 0.54 ? BLUE.clone().lerp(RED, (T - 0.46) / 0.08) : RED);
+      flow.drop.userData.halo.material.color.copy(tmpCol).multiplyScalar(1.4);
+      flow.drop.userData.ring.material.color.copy(tmpCol);
+      const pulse = 1 + 0.35 * Math.sin(t * 6);
+      flow.drop.userData.ring.scale.setScalar(0.2 * pulse);
+      flow.drop.userData.core.material.color.copy(tmpCol).lerp(new THREE.Color('#ffffff'), 0.45).multiplyScalar(1.3);
+      flow.drop.userData.ring.material.opacity = 1.2 - 0.5 * pulse;
+      if (!flow.trailPts.length || flow.trailPts.at(-1).distanceTo(dropPos) > 0.018) { flow.trailPts.push(dropPos.clone()); if (flow.trailPts.length > flow.trail.length) flow.trailPts.shift(); }
+      flow.trail.forEach((s, i) => {
+        const p = flow.trailPts[flow.trailPts.length - 1 - i];
+        s.visible = !!p;
+        if (!p) return;
+        s.position.copy(p);
+        const k = 1 - i / flow.trail.length;
+        s.scale.setScalar(0.09 * k + 0.02);
+        s.material.color.copy(tmpCol); s.material.opacity = 0.75 * k;
+      });
       const zone = zoneAt(dropPos);
       state.zone = zone;
       if (zone !== lastZone) {
@@ -656,13 +717,11 @@ export function createExplorer({ onOpen, onClose } = {}) {
         stepEls.forEach((li, i) => { li.classList.toggle('on', i === idx); li.classList.toggle('done', state.tour && i < idx); });
         if (idx >= 0 && innerWidth >= 760) stepEls[idx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
-      if (state.tour && !userMoved) {
-        // camera follows the drop from a slowly orbiting angle
-        const ang = 0.5 + state.tourT * 2.2;
-        const dist = camera.aspect < 0.8 ? 5 : 3.3;
-        const want = new THREE.Vector3(Math.sin(ang) * dist, 0.5 + dropPos.y * 0.4, Math.cos(ang) * dist).add(dropPos.clone().multiplyScalar(0.6));
-        controls.target.lerp(dropPos, Math.min(1, dt * 2.2));
-        camera.position.lerp(want, Math.min(1, dt * 0.9));
+      if (state.tour && !userMoved && !fly) {
+        // keep the section facing the viewer and glide towards the drop
+        controls.target.lerp(pv.copy(dropPos).lerp(HOME.target, 0.35), Math.min(1, dt * 1.8));
+        const want = pv2.copy(CUT_N).multiplyScalar(HOME.dist * (camera.aspect < 0.8 ? 0.95 : 0.72)).add(controls.target);
+        camera.position.lerp(want, Math.min(1, dt * 1.2));
       }
     }
 
@@ -672,14 +731,19 @@ export function createExplorer({ onOpen, onClose } = {}) {
       if (k >= 1) fly = null;
     } else if (focusTarget && !state.tour && !userMoved) {
       controls.target.lerp(focusTarget, Math.min(1, dt * 3));
-      const dir = camera.position.clone().sub(controls.target).normalize();
-      const want = focusTarget.clone().addScaledVector(dir, camera.aspect < 0.8 ? 4.2 : 2.6);
+      const d = pv.copy(camera.position).sub(controls.target).normalize();
+      const want = pv2.copy(focusTarget).addScaledVector(d, HOME.dist * 0.7);
       camera.position.lerp(want, Math.min(1, dt * 2));
       if (camera.position.distanceTo(want) < 0.01) focusTarget = null;
     }
-    if (!state.tour && !fly && !focusTarget && !userMoved && openT >= 1) {
-      controls.autoRotate = true; controls.autoRotateSpeed = 0.5;
-    } else controls.autoRotate = false;
+    // idle: a gentle sway in the section view, a slow turn in the others
+    const idle = !state.tour && !fly && !focusTarget && !userMoved;
+    controls.autoRotate = idle && state.mode !== 'cut';
+    controls.autoRotateSpeed = 0.45;
+    if (idle && state.mode === 'cut') {
+      homePos(swayV).sub(HOME.target).applyAxisAngle(UP, Math.sin(t * 0.35) * 0.12).add(HOME.target);
+      camera.position.lerp(swayV, Math.min(1, dt * 0.8));
+    }
     controls.update();
     composer.render();
     layoutLabels();
@@ -697,12 +761,12 @@ export function createExplorer({ onOpen, onClose } = {}) {
     requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('open')));
     if (!building) building = build().catch((err) => { root.classList.add('failed'); $('.ex-loading').textContent = 'Το μοντέλο δεν φόρτωσε. Ανανέωσε τη σελίδα.'; console.error(err); });
     await building;
-    if (!isOpen) return;
-    openT = 0;
-    camera.position.set(1.6, 0.9, 10);
+    if (!isOpen || !ready) return;
+    resize();
+    camera.position.copy(homePos()).sub(HOME.target).multiplyScalar(2.4).add(HOME.target);
     controls.target.copy(HOME.target);
-    flyTo(HOME.pos, HOME.target, 1.8);
-    userMoved = false;
+    cutOffset = 0.9; cutTarget = 0;
+    flyTo(homePos(), HOME.target, 1.8);
     last = performance.now();
     cancelAnimationFrame(raf);
     raf = requestAnimationFrame(frame);

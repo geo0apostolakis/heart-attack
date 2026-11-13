@@ -254,7 +254,7 @@ section { position: relative; }
 /* ---------- stats ---------- */
 .stats { display: grid; gap: 16px; grid-template-columns: 1fr; }
 @media (min-width: 860px) { .stats { grid-template-columns: repeat(3, 1fr); } }
-.stat .big { font: 400 clamp(56px, 7vw, 92px)/0.9 var(--pix); color: var(--ink); }
+.stat .big { font: 400 clamp(56px, 7vw, 92px)/0.9 var(--pix); color: var(--ink); font-variant-numeric: tabular-nums; }
 .stat .big span { color: var(--blood-hi); }
 .stat p { margin: 14px 0 6px; }
 .stat .src { font: 500 11px var(--mono); letter-spacing: 0.08em; color: var(--dim-2); }
@@ -506,6 +506,13 @@ html.ex-open, html.ex-open body { overflow: hidden; }
 #explorer.open .ex-journey { transform: none; }
 #explorer.open.touring .ex-hint { opacity: 0; }
 
+.ex-key { right: 26px; bottom: 84px; display: flex; gap: 14px; font: 500 10.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); pointer-events: none; opacity: 0; transition: opacity .7s .5s; }
+#explorer.open .ex-key { opacity: 1; }
+#explorer.has-info .ex-key { opacity: 0; }
+.ex-key span { display: inline-flex; align-items: center; gap: 7px; }
+.ex-key i { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 10px solid; }
+.ex-key i.co2 { color: #6f93ff; } .ex-key i.o2 { color: #ff5468; }
+.ex-key i.drop { width: 10px; height: 10px; border: 0; border-radius: 50%; background: #fff; box-shadow: 0 0 10px #fff, 0 0 0 3px rgba(255,255,255,.25); }
 @media (max-width: 1100px) { .ex-credit { display: none; } }
 @media (max-width: 759px) {
   .ex-top { padding: 14px 16px; }
@@ -519,6 +526,12 @@ html.ex-open, html.ex-open body { overflow: hidden; }
   .ex-seg button, .ex-tg button { padding: 8px 9px; font-size: 12px; }
   .ex-tg button[data-t="beat"], .ex-tg button[data-t="labels"], .ex-tg button[data-t="reset"] { display: none; }
   .ex-hint { display: none; }
+  .ex-key { left: 16px; right: auto; bottom: auto; top: 62px; gap: 10px; font-size: 9.5px; }
+  .ex-tg button[data-t="cor"] { display: none; }
   .ex-lbl { padding: 4px 7px; } .ex-lbl b { font-size: 11px; } .ex-lbl small { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { #explorer { transition: none; } }
+
+/* phones: drop the costly full-screen layers that repaint on every scroll frame */
+html.touch .grain { display: none; }
+html.touch body { overscroll-behavior-y: none; }
