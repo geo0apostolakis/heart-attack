@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#070308">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 28C6 20 3 15 3 10.5 3 7 5.8 4 9.3 4c2.6 0 4.6 1.4 6.7 4 2.1-2.6 4.1-4 6.7-4C26.2 4 29 7 29 10.5 29 15 26 20 16 28z' fill='%23e3243f'/></svg>">
 </head>
-<body><script>window.__e=[];addEventListener("error",e=>__e.push(String(e.message)+" @"+e.lineno));</script>
+<body>
 <div class="atmos" aria-hidden="true">
   <div class="dots"></div>
   <canvas id="bg-ecg"></canvas>
@@ -51,6 +51,7 @@
         <span class="scroll-hint rv">Σύρε την καρδιά για να γυρίσει · <kbd>←</kbd><kbd>→</kbd> για διαφάνειες</span>
       </div>
       <div class="hero-stage" id="heart-stage">
+        <button class="open-heart" type="button" data-open-heart><span class="ring"></span><span class="tx">Πάτα την καρδιά<small>δες πώς ρέει το αίμα μέσα της</small></span><span class="arr">↗</span></button>
         <div class="legend" aria-hidden="true">
           <span><i style="background:var(--blood-hi)"></i>Με οξυγόνο</span>
           <span><i style="background:var(--vein)"></i>Χωρίς οξυγόνο</span>
@@ -87,6 +88,10 @@
           <div class="viz"><div class="flow" id="flow-c"></div></div>
         </article>
       </div>
+      <button class="explore-cta rv" type="button" data-open-heart>
+        <span class="ec-l"><span class="tag">Πραγματικό ανατομικό μοντέλο</span><b>Μπες μέσα στην καρδιά</b><small>Κάθε θάλαμος, βαλβίδα και αγγείο με το όνομά του. Δες μια σταγόνα αίμα να κάνει όλη τη διαδρομή.</small></span>
+        <span class="ec-go">Άνοιγμα 3D <span>↗</span></span>
+      </button>
     </div>
   </section>
 
@@ -307,6 +312,7 @@
         <li><a href="https://www.hopkinsmedicine.org/health/conditions-and-diseases/heart-attack" target="_blank" rel="noopener">Johns Hopkins Medicine · Heart attack</a><span></span></li>
         <li><a href="https://my.clevelandclinic.org/health/diseases/16818-heart-attack-myocardial-infarction" target="_blank" rel="noopener">Cleveland Clinic · Heart attack</a><span></span></li>
         <li><a href="https://www.heart.org/en/health-topics/heart-attack/heart-attack-explained" target="_blank" rel="noopener">American Heart Association · Heart attack explained</a><span></span></li>
+        <li><a href="https://lifesciencedb.jp/bp3d/" target="_blank" rel="noopener">3D ανατομία καρδιάς · BodyParts3D, © The Database Center for Life Science, CC BY 4.0 (προσαρμοσμένο)</a><span>4.0</span></li>
       </ul>
     </div>
   </section>

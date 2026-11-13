@@ -7,6 +7,7 @@ import { Trace } from './ecg.js';
 import { beatShape } from './ecg.js';
 import { createHeart } from './heart.js';
 import { createArtery, paramsAt } from './artery.js';
+import { createExplorer, prefetchHeart } from './explorer.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -14,7 +15,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---------------- smooth scroll ----------------
-const lenis = new Lenis({ lerp: 0.1, smoothWheel: !reduced });
+const lenis = new Lenis({ lerp: 0.085, wheelMultiplier: 0.9, smoothWheel: !reduced });
 document.documentElement.classList.add('lenis');
 
 // ---------------- process steps copy ----------------
@@ -66,7 +67,28 @@ window.addEventListener('resize', () => { const c = curStep; curStep = -1; if (c
 // ---------------- 3D scenes ----------------
 const heart = createHeart($('#heart-stage'));
 const artery = createArtery($('#artery-stage'), labelsHost);
-window.__art = artery;
+
+// ---------------- full-window heart explorer ----------------
+const explorer = createExplorer({ onOpen: () => lenis.stop(), onClose: () => lenis.start() });
+const heroStage = $('#heart-stage');
+const openFrom = (x, y) => explorer.open({ x, y });
+$$('[data-open-heart]').forEach((b) => b.addEventListener('click', (e) => {
+  const r = b.getBoundingClientRect();
+  openFrom(e.clientX || r.left + r.width / 2, e.clientY || r.top + r.height / 2);
+}));
+{
+  // a click (not a drag) on the hero heart opens the explorer
+  let down = null;
+  heroStage.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY, performance.now()]; });
+  heroStage.addEventListener('pointerup', (e) => {
+    if (!down || e.target.closest('button')) return;
+    const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]);
+    if (moved < 6 && performance.now() - down[2] < 450) openFrom(e.clientX, e.clientY);
+    down = null;
+  });
+}
+const idle = window.requestIdleCallback || ((f) => setTimeout(f, 1500));
+idle(() => prefetchHeart().catch(() => {}));
 
 // ---------------- ECG traces ----------------
 const heroTrace = new Trace($('#hero-ecg'), { color: '#3ee6a8', amp: 0.4, baseline: 0.68, speed: 110, grid: true });
@@ -121,7 +143,7 @@ function frame(now) {
   const phaseAt = (back) => (((phase - (back * bpm) / 60) % 1) + 1) % 1;
   const beat = beatShape(phase).vent;
 
-  if (!reduced || !heart._drawn) { heart.update(t, phase); heart._drawn = true; }
+  if (!explorer.isOpen && (!reduced || !heart._drawn)) { heart.update(t, phase); heart._drawn = true; }
   heroTrace.step(dt, phaseAt, 0);
   bgTrace.step(dt, phaseAt, inProc ? P.st : 0);
   if (inProc) {
@@ -325,7 +347,7 @@ const toast = $('#toast');
 let toastT;
 function showToast(msg) { toast.textContent = msg; toast.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => toast.classList.remove('show'), 1600); }
 window.addEventListener('keydown', (e) => {
-  if (e.target.closest('input, textarea')) return;
+  if (explorer.isOpen || e.target.closest('input, textarea')) return;
   const next = ['ArrowRight', 'PageDown', ' '].includes(e.key) && !(e.key === ' ' && e.target.closest('button'));
   const prev = ['ArrowLeft', 'PageUp'].includes(e.key);
   if (e.key === 'f' || e.key === 'F') { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); return; }
