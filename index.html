@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Έμφραγμα | Όταν η καρδιά μένει χωρίς αίμα</title>
+<meta name="description" content="Διαδραστική παρουσίαση βιολογίας για το έμφραγμα του μυοκαρδίου: πώς γίνεται βήμα βήμα σε 3D, τα συμπτώματα, οι κίνδυνοι, η θεραπεία και τι κάνεις αν συμβεί.">
+<meta name="theme-color" content="#070308">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 28C6 20 3 15 3 10.5 3 7 5.8 4 9.3 4c2.6 0 4.6 1.4 6.7 4 2.1-2.6 4.1-4 6.7-4C26.2 4 29 7 29 10.5 29 15 26 20 16 28z' fill='%23e3243f'/></svg>">
+</head>
+<body><script>window.__e=[];addEventListener("error",e=>__e.push(String(e.message)+" @"+e.lineno));</script>
+<div class="atmos" aria-hidden="true">
+  <div class="dots"></div>
+  <canvas id="bg-ecg"></canvas>
+  <div class="glow-a"></div>
+  <div class="glow-b"></div>
+  <div class="vig"></div>
+</div>
+<div class="grain" aria-hidden="true"></div>
+
+<nav class="nav" aria-label="Ενότητες">
+  <span class="pill" aria-hidden="true"></span>
+  <span class="brand"><i></i>ΕΜΦΡΑΓΜΑ</span>
+  <a class="link" href="#heart">Καρδιά</a>
+  <a class="link" href="#process">Πώς γίνεται</a>
+  <a class="link" href="#symptoms">Συμπτώματα</a>
+  <a class="link hide-sm" href="#risk">Κίνδυνοι</a>
+  <a class="link hide-sm" href="#treat">Θεραπεία</a>
+  <a class="link" href="#sos">166</a>
+  <a class="link hide-sm" href="#quiz">Κουίζ</a>
+</nav>
+
+<main>
+  <!-- HERO -->
+  <section class="hero" id="top" data-slide>
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <span class="eyebrow rv">Βιολογία · Έμφραγμα του μυοκαρδίου</span>
+        <h1 class="rv">Όταν η καρδιά<br><span class="grad">μένει χωρίς αίμα</span></h1>
+        <p class="lead rv">Η καρδιά χτυπά περίπου 100.000 φορές τη μέρα και στέλνει αίμα σε όλο το σώμα. Χρειάζεται όμως κι αυτή το δικό της αίμα. Αν κλείσει μία από τις αρτηρίες που την τροφοδοτούν, ένα κομμάτι της αρχίζει να πεθαίνει. Αυτό είναι το έμφραγμα.</p>
+        <div class="hero-meta rv">
+          <span class="chip"><span class="d" style="background:var(--blood-hi)"></span><b>#1</b> αιτία θανάτου στον κόσμο</span>
+          <span class="chip"><span class="d" style="background:var(--plaque)"></span><b>~30'</b> μέχρι τη μόνιμη βλάβη</span>
+          <span class="chip"><span class="d" style="background:var(--ok)"></span><b>166</b> ΕΚΑΒ</span>
+        </div>
+        <div class="ecg-strip rv">
+          <span class="tag lbl">ΗΚΓ · φυσιολογικό</span>
+          <canvas id="hero-ecg"></canvas>
+          <span class="bpm"><span id="bpm">70</span><small>BPM</small></span>
+        </div>
+        <span class="scroll-hint rv">Σύρε την καρδιά για να γυρίσει · <kbd>←</kbd><kbd>→</kbd> για διαφάνειες</span>
+      </div>
+      <div class="hero-stage" id="heart-stage">
+        <div class="legend" aria-hidden="true">
+          <span><i style="background:var(--blood-hi)"></i>Με οξυγόνο</span>
+          <span><i style="background:var(--vein)"></i>Χωρίς οξυγόνο</span>
+          <span><i style="background:#ffb347"></i>Στεφανιαίες</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW THE HEART WORKS -->
+  <section class="sec" id="heart" data-slide>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow rv">01 · Η υγιής καρδιά</span>
+        <h2 class="rv">Μια αντλία που <span class="grad">ταΐζει και τον εαυτό της</span></h2>
+      </div>
+      <div class="anat">
+        <article class="card hair rv">
+          <span class="num">4</span>
+          <h3>Τέσσερις χώροι</h3>
+          <p class="muted">Δύο κόλποι πάνω, δύο κοιλίες κάτω. Η δεξιά πλευρά στέλνει αίμα χωρίς οξυγόνο στους πνεύμονες. Η αριστερή στέλνει αίμα με οξυγόνο σε όλο το σώμα.</p>
+          <div class="viz"><div class="flow" id="flow-a"></div></div>
+        </article>
+        <article class="card hair rv">
+          <span class="num">3</span>
+          <h3>Οι στεφανιαίες αρτηρίες</h3>
+          <p class="muted">Τρεις κύριες αρτηρίες τυλίγονται γύρω από την καρδιά σαν στεφάνι, γι' αυτό λέγονται στεφανιαίες. Δίνουν οξυγόνο στον ίδιο τον καρδιακό μυ. Στο 3D είναι οι γραμμές που λάμπουν.</p>
+          <div class="viz"><div class="flow" id="flow-b"></div></div>
+        </article>
+        <article class="card hair rv">
+          <span class="num">70</span>
+          <h3>Χωρίς διάλειμμα</h3>
+          <p class="muted">Περίπου 70 παλμοί το λεπτό σε ηρεμία. Ο καρδιακός μυς δουλεύει συνέχεια, γι' αυτό δεν αντέχει πολύ χωρίς οξυγόνο.</p>
+          <div class="viz"><div class="flow" id="flow-c"></div></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROCESS (pinned 3D artery) -->
+  <section class="process" id="process">
+    <div class="pin">
+      <div id="artery-stage" style="position:absolute;inset:0"></div>
+      <div class="stage-ui">
+        <div class="stage-top">
+          <div class="copy-swap" id="step-copy">
+            <div class="stepnum"><span id="step-n">01</span><small>/06</small></div>
+            <div class="step-copy">
+              <span class="term" id="step-term"></span>
+              <h3 id="step-title"></h3>
+              <p id="step-text"></p>
+            </div>
+          </div>
+          <div class="stage-side">
+            <div class="meter">
+              <div class="row"><span>Ροή αίματος</span><b id="m-flow">100%</b></div>
+              <div class="bar"><i id="m-flow-bar"></i></div>
+            </div>
+            <div class="meter">
+              <div class="row"><span>Οξυγόνο στον μυ</span><b id="m-o2">100%</b></div>
+              <div class="bar"><i id="m-o2-bar"></i></div>
+            </div>
+            <div class="mini-ecg" id="mini-ecg"><span class="st" id="mini-ecg-lbl">ΗΚΓ · φυσιολογικό</span><canvas id="stage-ecg"></canvas></div>
+          </div>
+        </div>
+        <div></div>
+        <div class="steps-rail" id="steps-rail"><span class="glass" aria-hidden="true"></span></div>
+      </div>
+      <span class="honest">Απεικόνιση · όχι σε κλίμακα</span>
+    </div>
+  </section>
+
+  <!-- STATS -->
+  <section class="sec" id="numbers" data-slide>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow rv">02 · Γιατί μας αφορά</span>
+        <h2 class="rv">Ο μεγαλύτερος <span class="grad">δολοφόνος</span> του κόσμου</h2>
+      </div>
+      <div class="stats">
+        <article class="card hair stat rv">
+          <div class="big"><span>#</span><span data-count="1" style="color:var(--ink)">1</span></div>
+          <p>Η ισχαιμική καρδιοπάθεια, η νόσος πίσω από τα περισσότερα εμφράγματα, είναι η πρώτη αιτία θανάτου στον κόσμο.</p>
+          <span class="src">ΠΟΥ · 2026</span>
+        </article>
+        <article class="card hair stat rv">
+          <div class="big"><span data-count="9.5" data-dec="1">9,5</span><span>M</span></div>
+          <p>Θάνατοι από ισχαιμική καρδιοπάθεια το 2023. Περίπου 1 στους 6 θανάτους παγκοσμίως (16%).</p>
+          <span class="src">ΠΟΥ · Top 10 αιτίες θανάτου, 2026</span>
+        </article>
+        <article class="card hair stat rv">
+          <div class="big"><span>~</span><span data-count="30" style="color:var(--ink)">30</span><span>'</span></div>
+          <p>Σε περίπου 30 λεπτά από το φράξιμο αρχίζει μόνιμη βλάβη στον καρδιακό μυ. Κάθε λεπτό μετράει.</p>
+          <span class="src">Johns Hopkins Medicine</span>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- SYMPTOMS -->
+  <section class="sec" id="symptoms" data-slide>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow rv">03 · Συμπτώματα</span>
+        <h2 class="rv">Πώς <span class="grad">καταλαβαίνεις</span> ένα έμφραγμα</h2>
+        <p class="lead rv">Πάτα ένα σημείο στο σώμα ή στη λίστα.</p>
+      </div>
+      <div class="sym-grid">
+        <div class="body-wrap rv">
+          <svg viewBox="0 0 300 520" id="body" role="img" aria-label="Σώμα με τα σημεία των συμπτωμάτων">
+            <defs>
+              <linearGradient id="bodyg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#3a1622"/><stop offset="1" stop-color="#170910"/>
+              </linearGradient>
+              <radialGradient id="chestg" cx="0.5" cy="0.5" r="0.5">
+                <stop offset="0" stop-color="#ff3d5a" stop-opacity=".75"/><stop offset="1" stop-color="#ff3d5a" stop-opacity="0"/>
+              </radialGradient>
+              <radialGradient id="armg" cx="0.5" cy="0.5" r="0.5">
+                <stop offset="0" stop-color="#ff8a3d" stop-opacity=".55"/><stop offset="1" stop-color="#ff8a3d" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <g fill="url(#bodyg)" stroke="rgba(255,160,180,.22)" stroke-width="1.2">
+              <ellipse cx="150" cy="58" rx="36" ry="44"/>
+              <path d="M134 98 h32 v20 h-32z"/>
+              <path d="M84 126 C100 112 200 112 216 126 C232 140 236 170 236 200 L232 300 C230 330 214 342 200 344 L196 470 C196 486 182 492 172 488 L160 380 L140 380 L128 488 C118 492 104 486 104 470 L100 344 C86 342 70 330 68 300 L64 200 C64 170 68 140 84 126Z"/>
+              <path d="M84 128 C66 136 56 156 52 180 L36 300 C34 316 40 328 50 328 C58 328 62 320 64 306 L76 200"/>
+              <path d="M216 128 C234 136 244 156 248 180 L264 300 C266 316 260 328 250 328 C242 328 238 320 236 306 L224 200"/>
+            </g>
+            <path id="heart-glyph" d="M158 176c-6-6-16-2-16 6 0 9 16 18 16 18s16-9 16-18c0-8-10-12-16-6z" fill="#e3243f" opacity=".9"/>
+            <ellipse cx="160" cy="190" rx="60" ry="50" fill="url(#chestg)" class="zone" data-z="chest" opacity="0"/>
+            <ellipse cx="238" cy="230" rx="30" ry="90" fill="url(#armg)" class="zone" data-z="arm" opacity="0"/>
+            <ellipse cx="150" cy="96" rx="40" ry="22" fill="url(#armg)" class="zone" data-z="jaw" opacity="0"/>
+            <ellipse cx="150" cy="170" rx="70" ry="38" fill="url(#armg)" class="zone" data-z="breath" opacity="0"/>
+            <ellipse cx="150" cy="40" rx="40" ry="26" fill="url(#armg)" class="zone" data-z="sweat" opacity="0"/>
+            <ellipse cx="150" cy="262" rx="44" ry="30" fill="url(#armg)" class="zone" data-z="nausea" opacity="0"/>
+            <ellipse cx="150" cy="58" rx="46" ry="52" fill="url(#armg)" class="zone" data-z="dizzy" opacity="0"/>
+            <g id="hots"></g>
+          </svg>
+        </div>
+        <div>
+          <div class="sym-list" id="sym-list"></div>
+          <div class="note rv"><b>!</b><p><strong style="color:var(--ink)">Δεν μοιάζει πάντα με ταινία.</strong> Στις γυναίκες, στους ηλικιωμένους και στους διαβητικούς το έμφραγμα συχνά φαίνεται διαφορετικά: δύσπνοια, κούραση, κάτι σαν δυσπεψία, πόνος στην πλάτη ή στο σαγόνι, χωρίς έντονο πόνο στο στήθος. Μερικές φορές δεν πονάει καθόλου. Αυτό λέγεται «σιωπηλό έμφραγμα».</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RISK -->
+  <section class="sec" id="risk" data-slide>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow rv">04 · Παράγοντες κινδύνου</span>
+        <h2 class="rv">Τι <span class="grad">φράζει</span> τις αρτηρίες</h2>
+        <p class="lead rv">Οι περισσότεροι παράγοντες είναι συνήθειες που αλλάζουν. Άναψε όσους θέλεις και δες την αρτηρία.</p>
+      </div>
+      <div class="risk-grid">
+        <div class="toggles rv" id="toggles"></div>
+        <div class="rv">
+          <div class="xs">
+            <svg viewBox="-160 -160 320 320" id="xs" aria-label="Τομή αρτηρίας">
+              <defs>
+                <radialGradient id="wallg"><stop offset=".72" stop-color="#5a1022"/><stop offset="1" stop-color="#b23048"/></radialGradient>
+                <radialGradient id="lumg"><stop offset="0" stop-color="#ff4d63"/><stop offset="1" stop-color="#a5132b"/></radialGradient>
+                <radialGradient id="plg" cx=".5" cy=".9" r=".9"><stop offset="0" stop-color="#ffd27a"/><stop offset="1" stop-color="#d68a12"/></radialGradient>
+                <filter id="soft"><feGaussianBlur stdDeviation="6"/></filter>
+              </defs>
+              <circle r="150" fill="#e3243f" opacity=".16" filter="url(#soft)"/>
+              <circle r="140" fill="url(#wallg)" stroke="rgba(255,180,190,.35)" stroke-width="1.5"/>
+              <circle r="112" fill="#3a0a16"/>
+              <path id="xs-plaque" fill="url(#plg)" stroke="#ffe0a0" stroke-opacity=".5"/>
+              <path id="xs-lumen" fill="url(#lumg)"/>
+              <g id="xs-cells"></g>
+            </svg>
+          </div>
+          <div class="xs-read">
+            <div><b id="xs-open">100%</b><span>Ανοιχτή αρτηρία</span></div>
+            <div><b id="xs-n">0/8</b><span>Παράγοντες</span></div>
+          </div>
+          <p class="tag" style="text-align:center;margin-top:12px">Απεικόνιση · όχι ιατρικός υπολογισμός</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TREATMENT -->
+  <section class="sec" id="treat" data-slide>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow rv">05 · Διάγνωση και θεραπεία</span>
+        <h2 class="rv">Ο στόχος: <span class="grad">να ξαναρέει το αίμα</span>, γρήγορα</h2>
+      </div>
+      <div class="treat">
+        <article class="card hair rv"><span class="k">01 / ΔΙΑΓΝΩΣΗ</span><h3>ΗΚΓ και εξέταση αίματος</h3><p>Το ηλεκτροκαρδιογράφημα δείχνει αν υπάρχει «ανάσπαση ST», σημάδι ότι μια αρτηρία είναι τελείως κλειστή. Η εξέταση τροπονίνης στο αίμα δείχνει αν έχει πάθει βλάβη ο καρδιακός μυς.</p></article>
+        <article class="card hair rv"><span class="k">02 / ΑΓΓΕΙΟΠΛΑΣΤΙΚΗ</span><h3>Μπαλονάκι και stent</h3><p>Ένας λεπτός σωλήνας μπαίνει από τον καρπό ή το πόδι και φτάνει στην καρδιά. Ένα μπαλονάκι ανοίγει την αρτηρία και ένα μεταλλικό πλέγμα (stent) την κρατά ανοιχτή. Είναι η πιο συχνή επείγουσα θεραπεία.</p></article>
+        <article class="card hair rv"><span class="k">03 / ΘΡΟΜΒΟΛΥΣΗ · BYPASS</span><h3>Όταν δεν γίνεται stent</h3><p>Αν δεν υπάρχει γρήγορα αγγειοπλαστική, φάρμακα διαλύουν τον θρόμβο. Σε σοβαρές περιπτώσεις γίνεται bypass: ο χειρουργός φτιάχνει έναν νέο δρόμο για το αίμα γύρω από το φράξιμο.</p></article>
+        <article class="card hair rv"><span class="k">04 / ΜΕΤΑ</span><h3>Φάρμακα και αποκατάσταση</h3><p>Ασπιρίνη και άλλα αντιαιμοπεταλιακά για να μη γίνει νέος θρόμβος, στατίνες για τη χοληστερόλη, φάρμακα για την πίεση. Μετά ακολουθεί καρδιακή αποκατάσταση με άσκηση υπό επίβλεψη.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <!-- SOS -->
+  <section class="sec" id="sos" data-slide>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow rv">06 · Αν συμβεί</span>
+        <h2 class="rv">Ο χρόνος <span class="grad">είναι μυς</span></h2>
+      </div>
+      <div class="sos">
+        <div class="callbox rv">
+          <span class="tag" style="color:#ffd0d8">Κάλεσε αμέσως</span>
+          <span class="num">166</span>
+          <span class="alt">ή 112</span>
+          <span class="muted" style="color:#f0c8d0">ΕΚΑΒ · δωρεάν από κάθε τηλέφωνο</span>
+        </div>
+        <ol class="todo rv">
+          <li><div><b>Κάλεσε το 166 αμέσως</b><span>Μην περιμένεις «μήπως περάσει». Κάθε λεπτό χάνεται μυς.</span></div></li>
+          <li><div><b>Μην οδηγήσεις μόνος σου</b><span>Το ασθενοφόρο ξεκινά τη θεραπεία από τον δρόμο.</span></div></li>
+          <li><div><b>Κάτσε και ηρέμησε</b><span>Χαλάρωσε ό,τι σφίγγει, μείνε με κάποιον.</span></div></li>
+          <li><div><b>Ασπιρίνη μόνο αν σου πουν</b><span>Μόνο αν το πει ο γιατρός ή το ΕΚΑΒ στο τηλέφωνο.</span></div></li>
+          <li><div><b>Αν χάσει τις αισθήσεις</b><span>Αν δεν αναπνέει, ΚΑΡΠΑ και απινιδωτής. Το ΕΚΑΒ σε καθοδηγεί από το τηλέφωνο.</span></div></li>
+        </ol>
+      </div>
+      <div class="prevent">
+        <div class="rv"><b>Όχι κάπνισμα</b><span>Ο μεγαλύτερος παράγοντας που αλλάζει.</span></div>
+        <div class="rv"><b>Κίνηση κάθε μέρα</b><span>Περπάτημα, ποδήλατο, αθλητισμός.</span></div>
+        <div class="rv"><b>Καλό φαγητό</b><span>Λιγότερο αλάτι, ζάχαρη και λιπαρά.</span></div>
+        <div class="rv"><b>Έλεγχοι</b><span>Πίεση, χοληστερόλη, σάκχαρο.</span></div>
+        <div class="rv"><b>Λιγότερο αλκοόλ</b><span>Και υγιές βάρος.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUIZ -->
+  <section class="sec" id="quiz" data-slide>
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="eyebrow rv">07 · Κουίζ</span>
+        <h2 class="rv">Πέντε ερωτήσεις. <span class="grad">Τι θυμάσαι;</span></h2>
+      </div>
+      <div class="card hair quiz rv" id="quiz-box"></div>
+    </div>
+  </section>
+
+  <!-- SOURCES -->
+  <section class="sec" id="sources" style="padding-top:20px" data-slide>
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow">Πηγές</span></div>
+      <ul class="sources">
+        <li><a href="https://www.who.int/news-room/fact-sheets/detail/heart-attack" target="_blank" rel="noopener">ΠΟΥ · Heart attack (fact sheet)</a><span>2026</span></li>
+        <li><a href="https://www.who.int/news-room/fact-sheets/detail/the-top-10-causes-of-death" target="_blank" rel="noopener">ΠΟΥ · The top 10 causes of death</a><span>2026</span></li>
+        <li><a href="https://www.who.int/news-room/fact-sheets/detail/cardiovascular-diseases-(cvds)" target="_blank" rel="noopener">ΠΟΥ · Cardiovascular diseases</a><span>2025</span></li>
+        <li><a href="https://www.mayoclinic.org/diseases-conditions/heart-attack/symptoms-causes/syc-20373106" target="_blank" rel="noopener">Mayo Clinic · Heart attack, symptoms and causes</a><span>2026</span></li>
+        <li><a href="https://www.nhlbi.nih.gov/health/heart-attack/causes" target="_blank" rel="noopener">NHLBI (NIH) · Heart attack causes</a><span></span></li>
+        <li><a href="https://www.hopkinsmedicine.org/health/conditions-and-diseases/heart-attack" target="_blank" rel="noopener">Johns Hopkins Medicine · Heart attack</a><span></span></li>
+        <li><a href="https://my.clevelandclinic.org/health/diseases/16818-heart-attack-myocardial-infarction" target="_blank" rel="noopener">Cleveland Clinic · Heart attack</a><span></span></li>
+        <li><a href="https://www.heart.org/en/health-topics/heart-attack/heart-attack-explained" target="_blank" rel="noopener">American Heart Association · Heart attack explained</a><span></span></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Παρουσίαση βιολογίας · Γιώργος Αποστολάκης · 2026</span>
+    <span>Για εκπαιδευτική χρήση. Δεν αντικαθιστά τον γιατρό.</span>
+  </div>
+</footer>
+<div class="toast" id="toast"></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
