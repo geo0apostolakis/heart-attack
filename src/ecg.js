@@ -1,3 +1,4 @@
+const coarse = window.matchMedia('(pointer: coarse)').matches;
 // ECG waveform + scrolling trace renderer, all driven by one shared beat clock.
 
 const g = (p, m, s) => Math.exp(-0.5 * ((p - m) / s) ** 2);
@@ -43,7 +44,8 @@ export class Trace {
     this.buf = [];
     this.acc = 0;
     this.resize();
-    window.addEventListener('resize', () => this.resize());
+    let lastW = innerWidth;
+    window.addEventListener('resize', () => { if (coarse && innerWidth === lastW) return; lastW = innerWidth; this.resize(); });
   }
   resize() {
     const r = this.c.getBoundingClientRect();

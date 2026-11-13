@@ -15,8 +15,24 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 // ---------------- smooth scroll ----------------
-const lenis = new Lenis({ lerp: 0.085, wheelMultiplier: 0.9, smoothWheel: !reduced });
-document.documentElement.classList.add('lenis');
+// Phones and tablets keep native scrolling: a JS scroller fighting touch momentum
+// is what made the page jump up and down. Same API either way.
+const touch = window.matchMedia('(pointer: coarse)').matches;
+const lenis = touch ? nativeScroller() : new Lenis({ lerp: 0.085, wheelMultiplier: 0.9, smoothWheel: !reduced });
+if (!touch) document.documentElement.classList.add('lenis');
+else document.documentElement.classList.add('touch');
+function nativeScroller() {
+  return {
+    raf() {},
+    stop() {},
+    start() {},
+    scrollTo(target, opts = {}) {
+      let y = typeof target === 'number' ? target : target.getBoundingClientRect().top + window.scrollY;
+      y += opts.offset || 0;
+      window.scrollTo({ top: Math.max(0, y), behavior: reduced ? 'auto' : 'smooth' });
+    },
+  };
+}
 
 // ---------------- process steps copy ----------------
 const STEPS = [
@@ -62,7 +78,8 @@ function setStep(i) {
   railGlass.style.transform = `translateX(${btn.offsetLeft}px)`;
   railGlass.classList.remove('squish'); void railGlass.offsetWidth; railGlass.classList.add('squish');
 }
-window.addEventListener('resize', () => { const c = curStep; curStep = -1; if (c >= 0) setStep(c); });
+let lastW = innerWidth;
+window.addEventListener('resize', () => { if (touch && innerWidth === lastW) return; lastW = innerWidth; const c = curStep; curStep = -1; if (c >= 0) setStep(c); });
 
 // ---------------- 3D scenes ----------------
 const heart = createHeart($('#heart-stage'));
@@ -93,7 +110,7 @@ idle(() => prefetchHeart().catch(() => {}));
 // ---------------- ECG traces ----------------
 const heroTrace = new Trace($('#hero-ecg'), { color: '#3ee6a8', amp: 0.4, baseline: 0.68, speed: 110, grid: true });
 const stageTrace = new Trace($('#stage-ecg'), { color: '#3ee6a8', amp: 0.34, baseline: 0.66, speed: 70, glow: 8, width: 1.5 });
-const bgTrace = new Trace($('#bg-ecg'), { color: '#ff2d4d', alpha: 0.14, amp: 0.13, baseline: 0.52, speed: 150, glow: 18, width: 1.4 });
+const bgTrace = new Trace($('#bg-ecg'), { color: '#ff2d4d', alpha: 0.14, amp: 0.13, baseline: 0.52, speed: 150, glow: touch ? 0 : 18, width: 1.4 });
 
 // ---------------- process scroll mapping ----------------
 const proc = $('#process');

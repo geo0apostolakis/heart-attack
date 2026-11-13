@@ -8,6 +8,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { smooth } from './ecg.js';
+const coarse = window.matchMedia('(pointer: coarse)').matches;
 
 const R = 1;            // inner radius of the artery
 const WALL = 0.3;       // wall thickness
@@ -40,7 +41,7 @@ const plaqueAt = (x, a, h) => h * Math.exp(-(((x - XP) / 1.05) ** 2)) * Math.exp
 export function createArtery(container, labelsHost) {
   const W = () => container.clientWidth, H = () => container.clientHeight;
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, coarse ? 1.25 : 1.75));
   renderer.setSize(W(), H());
   renderer.setClearColor('#070308');
   container.appendChild(renderer.domElement);
@@ -290,7 +291,9 @@ export function createArtery(container, labelsHost) {
     camera.aspect = W() / H(); camera.updateProjectionMatrix();
     renderer.setSize(W(), H()); composer.setSize(W(), H()); bloom.setSize(W(), H());
   };
-  window.addEventListener('resize', fit);
+  let lastW = innerWidth;
+  // on phones the URL bar changes only the height: ignore that, resizing WebGL buffers mid-scroll causes jank
+  window.addEventListener('resize', () => { if (coarse && innerWidth === lastW) return; lastW = innerWidth; fit(); });
   fit();
 
   let visible = false;

@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { beatShape, smooth } from './ecg.js';
+const coarse = window.matchMedia('(pointer: coarse)').matches;
 
 const AV_Y = 0.36;                  // coronary (AV) groove height on the unit sphere
 const frontGX = (y) => 0.1 - 0.16 * y;   // anterior interventricular groove x(y)
@@ -76,7 +77,7 @@ const coronaryMat = (color, speed, offset) => new THREE.ShaderMaterial({
 export function createHeart(container) {
   const W = () => container.clientWidth, H = () => container.clientHeight;
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, coarse ? 1.5 : 2));
   renderer.setSize(W(), H());
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -291,7 +292,8 @@ export function createHeart(container) {
     camera.updateProjectionMatrix();
     renderer.setSize(W(), H());
   };
-  window.addEventListener('resize', fit);
+  let lastW = innerWidth;
+  window.addEventListener('resize', () => { if (coarse && innerWidth === lastW) return; lastW = innerWidth; fit(); });
   fit();
 
   let visible = true;
